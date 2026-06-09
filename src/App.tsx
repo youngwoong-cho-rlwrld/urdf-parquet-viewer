@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Download, FolderOpen, Pause, Play, Plus, Rotate3D, Settings, Trash2, Upload } from "lucide-react";
 import { SceneView } from "./SceneView";
-import { COLOR_PALETTE_48, colorForIndex, normalizeHexColor } from "./colors";
+import { COLOR_PALETTE_48, UNGROUPED_JOINT_COLOR, colorForIndex, normalizeHexColor } from "./colors";
 import { availableColumns, detectMappingMode, jointValuesForFrame } from "./mapping";
 import { loadParquetRows, loadTextSource, type ParquetRow } from "./parquet";
 import type { AssetSource, JointAppearance, JointGroup, MappingMode, NeckOrder, UrdfModel } from "./types";
@@ -40,6 +40,14 @@ function createGroupId(name: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function createUngroupedAppearance(gizmo = false): JointAppearance {
+  return {
+    color: UNGROUPED_JOINT_COLOR,
+    groupId: "",
+    gizmo,
+  };
 }
 
 function sanitizeImportedGroups(rawGroups: unknown): { groups: JointGroup[]; groupIdMap: Map<string, string> } {
@@ -134,14 +142,10 @@ export function App() {
     if (!model) return;
     setAppearances((current) => {
       const next: Record<string, JointAppearance> = {};
-      model.orderedJoints.forEach((joint, index) => {
+      model.orderedJoints.forEach((joint) => {
         next[joint.name] =
           current[joint.name] ??
-          ({
-            color: colorForIndex(index),
-            groupId: "",
-            gizmo: false,
-          } satisfies JointAppearance);
+          createUngroupedAppearance();
       });
       return next;
     });
@@ -196,10 +200,18 @@ export function App() {
     setAppearances((current) => ({
       ...current,
       [jointName]: {
-        ...(current[jointName] ?? { color: "#2671d9", groupId: "", gizmo: false }),
+        ...(current[jointName] ?? createUngroupedAppearance()),
         ...patch,
       },
     }));
+  };
+
+  const assignJointGroup = (jointName: string, groupId: string) => {
+    const group = groups.find((item) => item.id === groupId);
+    updateAppearance(jointName, {
+      groupId,
+      color: group ? group.color : UNGROUPED_JOINT_COLOR,
+    });
   };
 
   const addGroup = () => {
@@ -215,7 +227,7 @@ export function App() {
       const next = { ...current };
       Object.entries(next).forEach(([jointName, appearance]) => {
         if (appearance.groupId === groupId) {
-          next[jointName] = { ...appearance, groupId: "" };
+          next[jointName] = { ...appearance, color: UNGROUPED_JOINT_COLOR, groupId: "" };
         }
       });
       return next;
@@ -224,12 +236,8 @@ export function App() {
 
   const saveGroupConfig = () => {
     const jointNames = model ? model.orderedJoints.map((joint) => joint.name) : Object.keys(appearances).sort();
-    const joints = jointNames.reduce<Record<string, JointAppearance>>((acc, jointName, index) => {
-      acc[jointName] = appearances[jointName] ?? {
-        color: colorForIndex(index),
-        groupId: "",
-        gizmo: false,
-      };
+    const joints = jointNames.reduce<Record<string, JointAppearance>>((acc, jointName) => {
+      acc[jointName] = appearances[jointName] ?? createUngroupedAppearance();
       return acc;
     }, {});
     const nodesByGroup = groups.reduce<Record<string, string[]>>((acc, group) => {
@@ -264,12 +272,8 @@ export function App() {
     const nextAppearances: Record<string, JointAppearance> = {};
 
     if (model) {
-      model.orderedJoints.forEach((joint, index) => {
-        nextAppearances[joint.name] = appearances[joint.name] ?? {
-          color: colorForIndex(index),
-          groupId: "",
-          gizmo: false,
-        };
+      model.orderedJoints.forEach((joint) => {
+        nextAppearances[joint.name] = appearances[joint.name] ?? createUngroupedAppearance();
       });
     } else {
       Object.assign(nextAppearances, appearances);
@@ -280,11 +284,7 @@ export function App() {
         if (knownJointNames && !knownJointNames.has(jointName)) return;
         if (!isRecord(rawAppearance)) return;
 
-        const current = nextAppearances[jointName] ?? {
-          color: "#2671d9",
-          groupId: "",
-          gizmo: false,
-        };
+        const current = nextAppearances[jointName] ?? createUngroupedAppearance();
         const rawGroupId = typeof rawAppearance.groupId === "string" ? rawAppearance.groupId : "";
         const mappedGroupId = rawGroupId ? groupIdMap.get(rawGroupId) ?? rawGroupId : "";
         nextAppearances[jointName] = {
@@ -302,11 +302,7 @@ export function App() {
         rawJointNames.forEach((rawJointName) => {
           if (typeof rawJointName !== "string") return;
           if (knownJointNames && !knownJointNames.has(rawJointName)) return;
-          const current = nextAppearances[rawJointName] ?? {
-            color: "#2671d9",
-            groupId: "",
-            gizmo: false,
-          };
+          const current = nextAppearances[rawJointName] ?? createUngroupedAppearance();
           nextAppearances[rawJointName] = { ...current, groupId };
         });
       });
@@ -646,7 +642,7 @@ export function App() {
 
         <div className="joint-list">
           {filteredJoints.map((joint) => {
-            const appearance = appearances[joint.name] ?? { color: "#2671d9", groupId: "", gizmo: false };
+            const appearance = appearances[joint.name] ?? createUngroupedAppearance();
             const group = groups.find((item) => item.id === appearance.groupId);
             return (
               <div
@@ -709,7 +705,7 @@ export function App() {
                   </div>
                 </div>
                 <div className="joint-controls">
-                  <select className="joint-group-select" value={appearance.groupId} onChange={(event) => updateAppearance(joint.name, { groupId: event.target.value })}>
+                  <select className="joint-group-select" value={appearance.groupId} onChange={(event) => assignJointGroup(joint.name, event.target.value)}>
                     <option value="">Ungrouped</option>
                     {groups.map((item) => (
                       <option key={item.id} value={item.id}>

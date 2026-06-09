@@ -3,6 +3,7 @@ import { GizmoHelper, GizmoViewport, Line, OrbitControls } from "@react-three/dr
 import { Box3, Matrix4, OrthographicCamera, PerspectiveCamera, Quaternion, Sphere, Vector3 } from "three";
 import { useEffect, useMemo, useRef, type MutableRefObject } from "react";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
+import { UNGROUPED_JOINT_COLOR } from "./colors";
 import type { JointAppearance, PoseState, UrdfModel } from "./types";
 
 type SceneViewProps = {
@@ -158,7 +159,7 @@ function RobotSkeleton({
             key={joint.name}
             name={joint.name}
             position={jointPose.position}
-            color={appearance?.color ?? "#2671d9"}
+            color={appearance?.color ?? UNGROUPED_JOINT_COLOR}
             isHovered={hoveredJoint === joint.name}
             setHoveredJoint={setHoveredJoint}
             nodeSize={nodeSize}

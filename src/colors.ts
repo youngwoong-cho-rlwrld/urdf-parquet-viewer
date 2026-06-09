@@ -49,6 +49,8 @@ export const COLOR_PALETTE_48 = [
   "#fdba74",
 ];
 
+export const UNGROUPED_JOINT_COLOR = "#9ca3af";
+
 export function colorForIndex(index: number): string {
   return COLOR_PALETTE_48[index % COLOR_PALETTE_48.length];
 }
