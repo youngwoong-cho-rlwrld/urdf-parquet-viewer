@@ -10,3 +10,9 @@ dist/
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts
+
+# Generated group configs (regenerate with `npm run generate:groups`)
+public/assets/default/group-configs/
+
+# OMC session state
+.omc/
