@@ -148,6 +148,18 @@ h2 {
   text-transform: uppercase;
 }
 
+.mapping-readout {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  border: 1px solid #d8dee7;
+  border-radius: 6px;
+  padding: 0 9px;
+  color: #34425a;
+  background: #f3f6f9;
+  font-size: 13px;
+}
+
 .file-button,
 .primary-action {
   display: flex;

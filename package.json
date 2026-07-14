@@ -9,6 +9,7 @@
     "preview": "vite preview --host 127.0.0.1",
     "generate:groups": "tsx scripts/generate-group-configs.ts",
     "verify:render": "node scripts/verify-render.mjs",
+    "verify:openarm": "node scripts/verify-openarm-xhand.mjs",
     "verify:fk": "tsx scripts/compare-fk.ts"
   },
   "dependencies": {

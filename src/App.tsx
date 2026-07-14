@@ -2,12 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Download, FolderOpen, Pause, Play, Plus, Rotate3D, Settings, Trash2, Upload } from "lucide-react";
 import { SceneView } from "./SceneView";
 import { COLOR_PALETTE_48, UNGROUPED_JOINT_COLOR, colorForIndex, normalizeHexColor } from "./colors";
-import { availableColumns, detectMappingMode, jointValuesForFrame } from "./mapping";
+import { availableColumns, detectMappingMode, isOpenarmXhand1Row, jointValuesForFrame, suggestedStateColumn } from "./mapping";
 import { loadParquetRows, loadTextSource, type ParquetRow } from "./parquet";
 import type { AssetSource, JointAppearance, JointGroup, MappingMode, NeckOrder, UrdfModel } from "./types";
 import { computePose, parseUrdf } from "./urdf";
 
 const DEFAULT_URDF = "/assets/default/allex.urdf";
+const OPENARM_XHAND1_URDF = "/assets/openarm-xhand1/openarm_xhand1.urdf";
 const DEFAULT_PARQUET = "/assets/default/episode_000000.parquet";
 const DEFAULT_STATE_COLUMN = "observation.state";
 const INITIAL_FPS = 20;
@@ -118,13 +119,17 @@ export function App() {
     setStatus("Loading assets");
     setError(null);
     try {
-      const [urdfText, parquetRows] = await Promise.all([
-        loadTextSource(source.urdfFile ?? source.urdfUrl),
-        loadParquetRows(source.parquetFile ?? source.parquetUrl),
-      ]);
+      const parquetRows = await loadParquetRows(source.parquetFile ?? source.parquetUrl);
+      const useOpenarmPreset = !source.urdfFile && source.urdfUrl === DEFAULT_URDF && isOpenarmXhand1Row(parquetRows[0]);
+      const urdfUrl = useOpenarmPreset ? OPENARM_XHAND1_URDF : source.urdfUrl;
+      const urdfText = await loadTextSource(source.urdfFile ?? urdfUrl);
       const parsed = parseUrdf(urdfText);
       setModel(parsed);
       setRows(parquetRows);
+      setStateColumn(suggestedStateColumn(parquetRows[0]));
+      if (useOpenarmPreset) {
+        setSource((current) => ({ ...current, urdfUrl }));
+      }
       setFrameIndex(0);
       setPlaying(false);
       setStatus(`${parsed.joints.length} joints · ${parquetRows.length} frames`);
@@ -433,19 +438,27 @@ export function App() {
               <option value="named">Named columns</option>
               <option value="state-vector">State vector</option>
               <option value="allex-48">ALLEX obs48</option>
+              <option value="openarm-xhand1-40">OpenArm + XHand1 obs40</option>
             </select>
           </label>
           <label className="field">
             <span>State column</span>
             <input list="parquet-columns" value={stateColumn} onChange={(event) => setStateColumn(event.target.value)} />
           </label>
-          <label className="field">
-            <span>Neck order</span>
-            <select value={neckOrder} onChange={(event) => setNeckOrder(event.target.value as NeckOrder)}>
-              <option value="carrier-yaw-pitch">Carrier: 44 yaw, 45 pitch</option>
-              <option value="urdf-pitch-yaw">URDF/export: 44 pitch, 45 yaw</option>
-            </select>
-          </label>
+          {activeMapping === "openarm-xhand1-40" ? (
+            <div className="field">
+              <span>Head order</span>
+              <div className="mapping-readout">0 pitch · 1 yaw</div>
+            </div>
+          ) : activeMapping === "allex-48" ? (
+            <label className="field">
+              <span>Neck order</span>
+              <select value={neckOrder} onChange={(event) => setNeckOrder(event.target.value as NeckOrder)}>
+                <option value="carrier-yaw-pitch">Carrier: 44 yaw, 45 pitch</option>
+                <option value="urdf-pitch-yaw">URDF/export: 44 pitch, 45 yaw</option>
+              </select>
+            </label>
+          ) : null}
           <datalist id="parquet-columns">
             {columns.map((column) => (
               <option key={column} value={column} />

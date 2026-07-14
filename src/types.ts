@@ -40,7 +40,7 @@ export type PoseState = {
   linkMatrices: Map<string, Matrix4>;
 };
 
-export type MappingMode = "auto" | "named" | "state-vector" | "allex-48";
+export type MappingMode = "auto" | "named" | "state-vector" | "allex-48" | "openarm-xhand1-40";
 export type NeckOrder = "carrier-yaw-pitch" | "urdf-pitch-yaw";
 
 export type JointGroup = {
