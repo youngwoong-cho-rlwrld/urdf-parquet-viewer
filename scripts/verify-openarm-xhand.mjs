@@ -1,5 +1,6 @@
 import { chromium } from "playwright-core";
 import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 
 const chromePath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const target = process.env.VIEWER_URL ?? "http://127.0.0.1:5173/";
@@ -7,6 +8,10 @@ const parquetPath =
   process.env.OPENARM_PARQUET ??
   "/Users/youngwoong/Downloads/openarm_xhand1_blind_cube_0710/data/chunk-000/episode_000000.parquet";
 const screenshotPath = process.env.OPENARM_SCREENSHOT ?? "/private/tmp/openarm-xhand1-viewer.png";
+const urdfText = await readFile(
+  new URL("../public/assets/openarm-xhand1/openarm_xhand1.urdf", import.meta.url),
+  "utf8",
+);
 
 if (!existsSync(chromePath)) throw new Error(`Chrome executable not found: ${chromePath}`);
 if (!existsSync(parquetPath)) throw new Error(`Parquet file not found: ${parquetPath}`);
@@ -15,6 +20,31 @@ function positionFromLabel(label) {
   const match = label.match(/\n\s*(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)\s+m$/);
   if (!match) throw new Error(`Unable to parse joint position: ${label}`);
   return match.slice(1).map(Number);
+}
+
+function jointAttribute(jointName, tagName, attributeName) {
+  const escapedName = jointName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const joint = urdfText.match(new RegExp(`<joint name="${escapedName}"[^>]*>([\\s\\S]*?)<\\/joint>`));
+  const tag = joint?.[1].match(new RegExp(`<${tagName}[^>]*\\b${attributeName}="([^"]+)"`));
+  if (!tag) throw new Error(`Unable to read ${jointName} ${tagName}.${attributeName}`);
+  return tag[1].trim().split(/\s+/).map(Number);
+}
+
+function distance(a, b) {
+  return Math.hypot(...a.map((value, index) => value - b[index]));
+}
+
+function assertNear(actual, expected, tolerance, context) {
+  if (Math.abs(actual - expected) > tolerance) {
+    throw new Error(`${context}: expected ${expected}, got ${actual}`);
+  }
+}
+
+function assertVectorNear(actual, expected, tolerance, context) {
+  if (actual.length !== expected.length) {
+    throw new Error(`${context}: expected ${expected.length} values, got ${actual.length}`);
+  }
+  actual.forEach((value, index) => assertNear(value, expected[index], tolerance, `${context}[${index}]`));
 }
 
 const browser = await chromium.launch({
@@ -34,7 +64,7 @@ try {
   await page.goto(target, { waitUntil: "domcontentloaded" });
   await page.locator('input[type="file"][accept=".parquet"]').setInputFiles(parquetPath);
   await page.waitForFunction(
-    () => document.body.textContent?.includes("45 joints") && document.body.textContent?.includes("382 frames"),
+    () => document.body.textContent?.includes("55 joints") && document.body.textContent?.includes("382 frames"),
     null,
     { timeout: 30000 },
   );
@@ -53,24 +83,33 @@ try {
   }
 
   const frame0Wrist = await jointPosition("openarm_left_joint7");
-  const frame0LeftThumb1 = await jointPosition("left_hand_thumb_rota_joint1");
   const frame0LeftThumb2 = await jointPosition("left_hand_thumb_rota_joint2");
-  const frame0RightThumb1 = await jointPosition("right_hand_thumb_rota_joint1");
+  const frame0LeftThumbTip = await jointPosition("left_hand_thumb_rota_joint3");
   const frame0RightThumb2 = await jointPosition("right_hand_thumb_rota_joint2");
+  const frame0RightThumbTip = await jointPosition("right_hand_thumb_rota_joint3");
+  const frame0LeftIndex2 = await jointPosition("left_hand_index_joint2");
+  const frame0LeftIndexTip = await jointPosition("left_hand_index_rota_joint3");
+  const frame0RightIndex2 = await jointPosition("right_hand_index_joint2");
+  const frame0RightIndexTip = await jointPosition("right_hand_index_rota_joint3");
 
   await page.locator('input[type="range"]').fill("100");
   const frame100Wrist = await jointPosition("openarm_left_joint7");
-  const frame100LeftThumb1 = await jointPosition("left_hand_thumb_rota_joint1");
-  const frame100LeftThumb2 = await jointPosition("left_hand_thumb_rota_joint2");
-  const frame100RightThumb1 = await jointPosition("right_hand_thumb_rota_joint1");
-  const frame100RightThumb2 = await jointPosition("right_hand_thumb_rota_joint2");
   await page.screenshot({ path: screenshotPath, fullPage: true });
 
-  const thumbDeltaZ = {
-    frame0Left: frame0LeftThumb2[2] - frame0LeftThumb1[2],
-    frame0Right: frame0RightThumb2[2] - frame0RightThumb1[2],
-    frame100Left: frame100LeftThumb2[2] - frame100LeftThumb1[2],
-    frame100Right: frame100RightThumb2[2] - frame100RightThumb1[2],
+  const fingertipLengths = {
+    leftThumb: distance(frame0LeftThumb2, frame0LeftThumbTip),
+    rightThumb: distance(frame0RightThumb2, frame0RightThumbTip),
+    leftIndex: distance(frame0LeftIndex2, frame0LeftIndexTip),
+    rightIndex: distance(frame0RightIndex2, frame0RightIndexTip),
+  };
+
+  const mountRpy = {
+    left: jointAttribute("left_xhand_mount", "origin", "rpy"),
+    right: jointAttribute("right_xhand_mount", "origin", "rpy"),
+  };
+  const indexBendAxes = {
+    left: jointAttribute("left_hand_index_bend_joint", "axis", "xyz"),
+    right: jointAttribute("right_hand_index_bend_joint", "axis", "xyz"),
   };
 
   if (urdfPath !== "/assets/openarm-xhand1/openarm_xhand1.urdf") {
@@ -88,9 +127,14 @@ try {
   if (frame0Wrist.every((value, index) => value === frame100Wrist[index])) {
     throw new Error(`Wrist pose did not change between frames: ${frame0Wrist.join(", ")}`);
   }
-  if (Object.values(thumbDeltaZ).some((value) => value <= 0)) {
-    throw new Error(`Thumbs are not oriented upward: ${JSON.stringify(thumbDeltaZ)}`);
-  }
+  assertVectorNear(mountRpy.left, [Math.PI, 0, -Math.PI / 2], 1e-12, "left XHand mount RPY");
+  assertVectorNear(mountRpy.right, [Math.PI, 0, Math.PI / 2], 1e-12, "right XHand mount RPY");
+  assertVectorNear(indexBendAxes.left, [-1, 0, 0], 1e-12, "left index-bend axis");
+  assertVectorNear(indexBendAxes.right, [1, 0, 0], 1e-12, "right index-bend axis");
+  assertNear(fingertipLengths.leftThumb, 0.0504, 0.002, "left thumb distal length");
+  assertNear(fingertipLengths.rightThumb, 0.0504, 0.002, "right thumb distal length");
+  assertNear(fingertipLengths.leftIndex, 0.0425, 0.002, "left index distal length");
+  assertNear(fingertipLengths.rightIndex, 0.0425, 0.002, "right index distal length");
   if (errors.length > 0) throw new Error(`Browser errors: ${errors.join(" | ")}`);
 
   console.log(
@@ -103,7 +147,9 @@ try {
         frames: 382,
         frame0Wrist,
         frame100Wrist,
-        thumbDeltaZ,
+        mountRpy,
+        indexBendAxes,
+        fingertipLengths,
         screenshotPath,
       },
       null,
